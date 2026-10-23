@@ -1,7 +1,7 @@
-import {compactClues} from './compact.js?v=13';
-import { specialtyOf, notesOf, EDITORIAL, visualFor } from './case-details.js?v=13';
-import { CASES } from './data.js?v=13';
-import { MAX_GUESSES, SKIP_GUESS, skipGuess, normalize, getDiagnosis, getCase, searchDiagnoses, resolveDiagnosis, dayKey, dayNumber, dailyCase, createGame, restoreGame, makeGuess, calculateStats, shareText } from './engine.js?v=13';
+import {compactClues} from './compact.js?v=14';
+import { notesOf, EDITORIAL, visualFor } from './case-details.js?v=14';
+import { CASES } from './data.js?v=14';
+import { MAX_GUESSES, SKIP_GUESS, skipGuess, normalize, getDiagnosis, getCase, searchDiagnoses, resolveDiagnosis, dayKey, dayNumber, dailyCase, createGame, restoreGame, makeGuess, calculateStats, shareText } from './engine.js?v=14';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'doctordle-ru-v1';
@@ -84,7 +84,6 @@ function render() {
   $('case-date').textContent = mode === 'daily' ? new Date(today + 'T12:00:00+03:00').toLocaleDateString('ru-RU', { day:'numeric', month:'long' }) : '';
   $('case-date').dateTime = mode === 'daily' ? today : '';
   $('patient-meta').textContent = caseData.patient;
-  $('case-specialty').textContent = specialtyOf(caseData);
   $('archive-return').hidden = mode === 'daily';
   $('complaint').textContent = caseData.complaint;
   $('bookmark-button').textContent = bookmarks[caseData.id] ? '★ В закладках' : '☆ Сохранить';
@@ -278,19 +277,18 @@ function reviewHTML(game,c){
  const alternatives=Object.entries(notes).filter(([id])=>!wrong.includes(id)).map(([id,n])=>`<div class="differential"><h4>${escapeHTML(getDiagnosis(id)?.name||id)}</h4><p>${escapeHTML(n)}</p></div>`).join('');
  return `<div class="result-actions"><button id="telegram-share">В Telegram ↗</button><button id="challenge-button" class="secondary">Оспорить ответ</button></div><div class="reasoning"><details><summary>Разобрать случай по шагам</summary><ol>${c.clues.map((x,i)=>`<li><span>0${i+1}</span><p>${escapeHTML(x)}</p></li>`).join('')}</ol></details>${wrong.length?`<h3>Ваши гипотезы</h3>${attempted}`:''}${alternatives?`<details><summary>С чем ещё сравнить</summary>${alternatives}</details>`:''}<details class="editorial"><summary>Источники</summary><p>${c.publication ? 'Адаптировано из опубликованного клинического наблюдения. '+escapeHTML(c.publication.title||'') : 'История пациента вымышленная; заболевание и диагностические признаки основаны на медицинских источниках.'}</p><p>Независимая врачебная проверка пока не проведена.</p><a href="${c.source}" target="_blank" rel="noopener noreferrer">${escapeHTML(c.sourceLabel)} ↗</a>${c.publication?`<p>${escapeHTML(c.publication.authors || c.publication.author || '')} · ${escapeHTML(c.publication.year)}<br>${escapeHTML(c.publication.adaptation || 'Сокращённый перевод и адаптация в игровую задачу.')}</p><a href="${c.publication.licenseUrl}" target="_blank" rel="noopener noreferrer">${escapeHTML(c.publication.license)} ↗</a>`:''}</details></div>`;
 }
-let archiveSpecialty='Все', archiveStatus='Все';
+let archiveStatus='Все';
 function showArchive(){
- openModal(`<h2>Архив</h2><div class="archive-filters"><label>Специальность<select id="specialty-filter">${['Все',...new Set(CASES.map(specialtyOf))].map(x=>`<option${x===archiveSpecialty?' selected':''}>${escapeHTML(x)}</option>`).join('')}</select></label><label>Прогресс<select id="status-filter">${['Все','Не начаты','В процессе','Завершены','Мои ошибки','Закладки','Реальные случаи'].map(x=>`<option${x===archiveStatus?' selected':''}>${x}</option>`).join('')}</select></label></div><div id="archive-list"></div><button class="modal-start" id="random-case">Случайный случай</button><button class="text-button" id="my-reports">Мои замечания</button>`);
- $('specialty-filter').addEventListener('change',e=>{archiveSpecialty=e.target.value;renderArchive();});
+ openModal(`<h2>Архив</h2><div class="archive-filters"><label>Прогресс<select id="status-filter">${['Все','Не начаты','В процессе','Завершены','Мои ошибки','Закладки','Реальные случаи'].map(x=>`<option${x===archiveStatus?' selected':''}>${x}</option>`).join('')}</select></label></div><div id="archive-list"></div><button class="modal-start" id="random-case">Случайный случай</button><button class="text-button" id="my-reports">Мои замечания</button>`);
  $('status-filter').addEventListener('change',e=>{archiveStatus=e.target.value;renderArchive();});
  $('random-case').addEventListener('click',()=>{const pool=archivePool();if(pool.length)openCase(pool[Math.floor(Math.random()*pool.length)].id);});
  $('my-reports').addEventListener('click',showReports);renderArchive();
 }
 function archiveGame(c){let saved=c.id===practice.caseId?practice:practiceRecords[c.id];if(!saved?.guesses?.length&&!Object.hasOwn(practiceRecords,c.id)){const dailyHistory=Object.values(records).filter(g=>g?.caseId===c.id&&g.guesses?.length);if(dailyHistory.length)saved={...dailyHistory.at(-1),day:null};}return restoreGame(saved,c.id);}
-function archivePool(){return CASES.filter(c=>{const g=archiveGame(c);return (archiveSpecialty==='Все'||specialtyOf(c)===archiveSpecialty)&&(archiveStatus==='Все'||archiveStatus==='Мои ошибки'&&g.status==='lost'||archiveStatus==='Закладки'&&!!bookmarks[c.id]||archiveStatus==='Реальные случаи'&&!!c.publication||archiveStatus==='Не начаты'&&!g.guesses.length||archiveStatus==='В процессе'&&g.status==='playing'&&g.guesses.length>0||archiveStatus==='Завершены'&&g.status!=='playing');});}
+function archivePool(){return CASES.filter(c=>{const g=archiveGame(c);return (archiveStatus==='Все'||archiveStatus==='Мои ошибки'&&g.status==='lost'||archiveStatus==='Закладки'&&!!bookmarks[c.id]||archiveStatus==='Реальные случаи'&&!!c.publication||archiveStatus==='Не начаты'&&!g.guesses.length||archiveStatus==='В процессе'&&g.status==='playing'&&g.guesses.length>0||archiveStatus==='Завершены'&&g.status!=='playing');});}
 function renderArchive(){
  const pool=archivePool();$('random-case').disabled=!pool.length;
- $('archive-list').innerHTML=pool.length?pool.map(c=>{const g=archiveGame(c),done=g.status!=='playing';return `<button class="archive-case" data-case="${c.id}"><span class="archive-id">${c.id.slice(-2)}</span><span><strong>${escapeHTML(done?getDiagnosis(c.diagnosis).name:c.patient)}</strong><small>${escapeHTML(specialtyOf(c))} · ${c.publication?'Реальный случай · ':''}${done?(g.status==='won'?'Решён':'Не решён'):g.guesses.length?'Продолжить · '+g.guesses.length+'/6':'Не начат'}</small></span><span aria-hidden="true">${done?'✓':'↗'}</span></button>`;}).join(''):'<p>Нет случаев с такими фильтрами.</p>';
+ $('archive-list').innerHTML=pool.length?pool.map(c=>{const g=archiveGame(c),done=g.status!=='playing';return `<button class="archive-case" data-case="${c.id}"><span class="archive-id">${c.id.slice(-2)}</span><span><strong>${escapeHTML(done?getDiagnosis(c.diagnosis).name:c.patient)}</strong><small>${c.publication?'Реальный случай · ':''}${done?(g.status==='won'?'Решён':'Не решён'):g.guesses.length?'Продолжить · '+g.guesses.length+'/6':'Не начат'}</small></span><span aria-hidden="true">${done?'✓':'↗'}</span></button>`;}).join(''):'<p>Нет случаев с такими фильтрами.</p>';
  $('archive-list').querySelectorAll('[data-case]').forEach(b=>b.addEventListener('click',()=>openCase(b.dataset.case)));
 }
 function openCase(id){
@@ -311,7 +309,7 @@ function showReports(){
 
 function showBookmark(){
  const c=getCase(current().caseId), old=bookmarks[c.id];
- openModal(`<h2>Личная заметка</h2><p>${escapeHTML(c.patient)} · ${escapeHTML(specialtyOf(c))}</p><label class="field-label">Что запомнить<textarea id="bookmark-note" maxlength="2000" rows="5"></textarea></label><button id="save-bookmark" class="modal-start">Сохранить в закладки</button>${old?'<button id="remove-bookmark" class="text-button">Убрать из закладок</button>':''}`);
+ openModal(`<h2>Личная заметка</h2><p>${escapeHTML(c.patient)}</p><label class="field-label">Что запомнить<textarea id="bookmark-note" maxlength="2000" rows="5"></textarea></label><button id="save-bookmark" class="modal-start">Сохранить в закладки</button>${old?'<button id="remove-bookmark" class="text-button">Убрать из закладок</button>':''}`);
  $('bookmark-note').value=old?.note||'';
  $('save-bookmark').addEventListener('click',()=>{bookmarks[c.id]={note:$('bookmark-note').value.trim(),updatedAt:new Date().toISOString()};persist();render();$('modal').close();toast('Сохранено');});
  if(old)$('remove-bookmark').addEventListener('click',()=>{delete bookmarks[c.id];persist();render();$('modal').close();});

@@ -1,6 +1,6 @@
-import {PUBLISHED_CASES, PUBLISHED_DIAGNOSES} from './published-data.js?v=13';
-import { EXTRA_CASES, EXTRA_DIAGNOSES } from './expanded-data.js?v=13';
-import { EXPERT_CASES, EXPERT_DIAGNOSES } from './expert-data.js?v=13';
+import {PUBLISHED_CASES, PUBLISHED_DIAGNOSES} from './published-data.js?v=14';
+import { EXTRA_CASES, EXTRA_DIAGNOSES } from './expanded-data.js?v=14';
+import { EXPERT_CASES, EXPERT_DIAGNOSES } from './expert-data.js?v=14';
 
 // Fictional teaching cases. Sources inform the clues, not a real-patient diagnosis.
 export const DIAGNOSES = [
