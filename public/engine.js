@@ -1,4 +1,4 @@
-import { CASES, LEGACY_CASES, DIAGNOSES } from './data.js?v=13';
+import { CASES, LEGACY_CASES, DIAGNOSES } from './data.js?v=15';
 
 export const MAX_GUESSES = 6;
 export const SKIP_GUESS = '__skip__';

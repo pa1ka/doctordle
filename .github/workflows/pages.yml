@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test game
-        run: node --test tests/engine.test.mjs
+        run: node --test tests/*.test.mjs
       - name: Build static game
         run: node scripts/build-pages.mjs
       - uses: actions/configure-pages@v5

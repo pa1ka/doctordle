@@ -1,7 +1,8 @@
-import {compactClues} from './compact.js?v=14';
-import { notesOf, EDITORIAL, visualFor } from './case-details.js?v=14';
-import { CASES } from './data.js?v=14';
-import { MAX_GUESSES, SKIP_GUESS, skipGuess, normalize, getDiagnosis, getCase, searchDiagnoses, resolveDiagnosis, dayKey, dayNumber, dailyCase, createGame, restoreGame, makeGuess, calculateStats, shareText } from './engine.js?v=14';
+import {progressFor, unseenCases} from './progress.js?v=15';
+import {compactClues} from './compact.js?v=15';
+import { notesOf, EDITORIAL, visualFor } from './case-details.js?v=15';
+import { CASES } from './data.js?v=15';
+import { MAX_GUESSES, SKIP_GUESS, skipGuess, normalize, getDiagnosis, getCase, searchDiagnoses, resolveDiagnosis, dayKey, dayNumber, dailyCase, createGame, restoreGame, makeGuess, calculateStats, shareText } from './engine.js?v=15';
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = 'doctordle-ru-v1';
@@ -24,6 +25,9 @@ if (stored.practice) practiceRecords[practice.caseId] = practice;
 const linkedCase = new URLSearchParams(location.search).get('case');
 const linkedIndex = CASES.findIndex(c => c.id === linkedCase);
 if (linkedIndex >= 0) { mode = 'practice'; practiceIndex = linkedIndex; practice = restoreGame(practiceRecords[linkedCase], linkedCase); }
+let visited = Array.isArray(stored.visited) ? stored.visited : [];
+let tipDismissed = stored.tipDismissed === true;
+let archiveStatus='Новые', archivePage=0;
 let theme = stored.theme === 'dark' ? 'dark' : 'light';
 let selectedDiagnosis = null, suggestions = [], activeOption = -1, toastTimer;
 
@@ -34,7 +38,7 @@ const icons = {
 const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
 const current = () => mode === 'daily' ? daily : practice;
 function persist() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, practiceIndex, practice, practiceRecords: {...practiceRecords, [practice.caseId]:practice}, bookmarks, repeatLog, theme })); }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ records, practiceIndex, practice, practiceRecords: {...practiceRecords, [practice.caseId]:practice}, bookmarks, repeatLog, visited, tipDismissed, theme })); }
   catch { if (storageAvailable) toast('Браузер не разрешил сохранить прогресс. Игра продолжит работать.'); storageAvailable = false; }
 }
 function toast(message) {
@@ -43,6 +47,7 @@ function toast(message) {
 }
 function setTheme(next) {
   theme = next; document.documentElement.dataset.theme = theme;
+  $('theme-button').textContent = theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
   $('theme-button').setAttribute('aria-label', theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему');
   document.querySelector('meta[name=theme-color]').content = theme === 'dark' ? '#17191d' : '#f5f4ef';
 }
@@ -52,11 +57,11 @@ function closeSuggestions() {
 }
 function selectDiagnosis(item) {
   selectedDiagnosis = item; $('diagnosis-input').value = item.name; closeSuggestions();
-  $('feedback').textContent = ''; $('diagnosis-input').focus();
+  $('feedback').textContent = ''; $('diagnosis-input').focus({preventScroll:true}); $('submit-button').scrollIntoView({block:'nearest'});
 }
 function renderSuggestions() {
   const input = $('diagnosis-input');
-  suggestions = searchDiagnoses(input.value);
+  suggestions = searchDiagnoses(input.value).slice(0,5);
   if (!input.value.trim()) { closeSuggestions(); return; }
   $('suggestions').replaceChildren();
   if (!suggestions.length) {
@@ -65,10 +70,10 @@ function renderSuggestions() {
   }
   suggestions.forEach((item, index) => {
     const li = document.createElement('li'); li.id = 'diagnosis-option-' + index; li.setAttribute('role', 'option');
-    li.setAttribute('aria-selected', String(index === activeOption)); li.textContent = item.name;
+    li.setAttribute('aria-selected', String(index === activeOption)); li.innerHTML = highlightMatch(item.name,input.value);
     const alias = item.aliases.find(a => normalize(a).includes(normalize(input.value)));
     if (alias && !normalize(item.name).includes(normalize(input.value))) {
-      const small = document.createElement('small'); small.textContent = 'Также: ' + alias; li.append(small);
+      const small = document.createElement('small'); small.innerHTML = highlightMatch(alias,input.value); li.append(small);
     }
     li.addEventListener('pointerdown', event => event.preventDefault());
     li.addEventListener('click', () => selectDiagnosis(item)); $('suggestions').append(li);
@@ -80,13 +85,13 @@ function render() {
   const game = current(), caseData = getCase(game.caseId), done = game.status !== 'playing';
   $('daily-tab').classList.toggle('active', mode === 'daily'); $('practice-tab').classList.toggle('active', mode === 'practice');
   $('daily-tab').setAttribute('aria-pressed', String(mode === 'daily')); $('practice-tab').setAttribute('aria-pressed', String(mode === 'practice'));
-  $('case-number').textContent = mode === 'daily' ? `СЛУЧАЙ №${String(Math.max(1, dayNumber(today))).padStart(3, '0')}` : `Случай ${practiceIndex % CASES.length + 1}`;
+  $('case-number').textContent = mode === 'daily' ? 'Случай дня' : `Случай ${practiceIndex % CASES.length + 1}`;
   $('case-date').textContent = mode === 'daily' ? new Date(today + 'T12:00:00+03:00').toLocaleDateString('ru-RU', { day:'numeric', month:'long' }) : '';
   $('case-date').dateTime = mode === 'daily' ? today : '';
   $('patient-meta').textContent = caseData.patient;
   $('archive-return').hidden = mode === 'daily';
   $('complaint').textContent = caseData.complaint;
-  $('bookmark-button').textContent = bookmarks[caseData.id] ? '★ В закладках' : '☆ Сохранить';
+  $('bookmark-button').textContent = bookmarks[caseData.id] ? 'В закладках' : 'Сохранить';
   $('skip-button').hidden = done; $('skip-button').disabled = game.revealed>=5;
   $('clue-count').textContent = done ? `Использовано ${game.revealed} из 5` : `${game.revealed} / 5`;
   $('clues').innerHTML = caseData.clues.map((clue, i) => {
@@ -112,44 +117,31 @@ function render() {
 
 function renderResult(game, caseData) {
   const won = game.status === 'won', result = $('result');
-  result.className = 'result' + (won ? '' : ' lost');
-  result.innerHTML = `<div class="result-eyebrow"><span>${won ? '✓ ДИАГНОЗ НАЙДЕН' : 'РАЗБОР СЛУЧАЯ'}</span><span>${won ? game.guesses.length : 'X'} / 6</span></div><h2>${escapeHTML(getDiagnosis(caseData.diagnosis).name)}</h2><p class="result-subtitle">${won ? (game.guesses.length === 1 ? 'Верный диагноз с первой попытки.' : `Вы справились за ${game.guesses.length} ${game.guesses.length < 5 ? 'попытки' : 'попыток'}.`) : 'Попытки закончились. Посмотрим, как складывалась картина.'}</p><p class="result-body">${escapeHTML(caseData.explanation)}</p><p class="takeaway">${escapeHTML(caseData.takeaway)}</p><a class="result-source" href="${caseData.source}" target="_blank" rel="noopener noreferrer">${escapeHTML(caseData.sourceLabel || 'MedlinePlus')} ↗</a><div class="result-grid" aria-label="${won ? 'Победа' : 'Ответ не найден'}">${game.guesses.map((_, i) => won && i === game.guesses.length - 1 ? '🟩' : '⬜').join('')}</div><div class="result-actions"><button id="share-button">Поделиться результатом ↗</button><button class="secondary" id="next-button">${mode === 'daily' ? 'Выбрать случай →' : 'Следующий пациент →'}</button></div>`;
-  result.querySelector('h2').insertAdjacentHTML('afterend',`<div class="decisive"><h3>Решающие данные</h3><p>${escapeHTML(caseData.clues[4])}</p></div>`);
-  const full=document.createElement('details');full.innerHTML='<summary>Подробное объяснение</summary>';result.querySelector('.result-body').before(full);full.append(result.querySelector('.result-body'),result.querySelector('.takeaway'));
-  result.insertAdjacentHTML('beforeend', reviewHTML(game,caseData));
-  if(mode==='practice'){const retry=document.createElement('button');retry.textContent='Пройти заново';retry.className='text-button';retry.addEventListener('click',()=>restartCase(caseData.id));result.append(retry);}
-  const reasoning=result.querySelector('.reasoning');const more=document.createElement('details');more.className='extended-review';more.innerHTML='<summary>Гипотезы, источники и подробности</summary>';reasoning.before(more);more.append(reasoning);
-  result.classList.add('result-card');
-  const hero=document.createElement('div');hero.className='result-hero';
-  const eyebrow=result.querySelector('.result-eyebrow');
-  const title=result.querySelector('h2');
-  const subtitle=result.querySelector('.result-subtitle');
-  const grid=result.querySelector('.result-grid');
-  grid.innerHTML=Array.from({length:MAX_GUESSES},(_,i)=>`<span class="result-step ${i<game.guesses.length?'used':''} ${won&&i===game.guesses.length-1?'correct':''}">${won&&i===game.guesses.length-1?'✓':i<game.guesses.length?'−':''}</span>`).join('');
-  grid.setAttribute('aria-label',`${game.guesses.length} из ${MAX_GUESSES} попыток`);
-  eyebrow.innerHTML=`<span class="outcome-mark">${won?'✓':'—'}</span><span>${won?'Верный диагноз':'Случай завершён'}</span>`;
-  result.prepend(hero);hero.append(eyebrow,title,subtitle,grid);
-  const actions=result.querySelector('.result-actions');actions.classList.add('primary-result-actions');
-  const next=$('next-button');next.classList.remove('secondary');next.textContent=mode==='daily'?'Ещё один случай →':'Следующий случай →';
-  $('share-button').classList.add('secondary');$('share-button').textContent='Поделиться';
-  actions.prepend(next);hero.append(actions);
-  const review=document.createElement('details');review.className='result-review';review.innerHTML='<summary>Разбор случая <span>＋</span></summary>';
-  result.append(review);review.append(result.querySelector('.decisive'),result.querySelector('.result-body'),result.querySelector('.takeaway'),result.querySelector('.result-source'),reasoning);
-  full.remove();more.remove();
-  const extra=result.querySelector('.result-actions:not(.primary-result-actions)');
-  if(extra){extra.className='result-quiet-actions';review.append(extra);}
-  const retry=result.querySelector(':scope > .text-button');if(retry)review.append(retry);
-  $('challenge-button').addEventListener('click', () => showChallenge(caseData));
-  $('telegram-share').addEventListener('click', () => { const url = new URL('https://t.me/share/url'); url.searchParams.set('url', caseLink()); url.searchParams.set('text', shareText(current(),mode)); window.open(url.href,'_blank','noopener,noreferrer'); });
-  $('share-button').addEventListener('click', shareResult);
-  $('next-button').addEventListener('click', () => {
-    if (mode === 'daily') { showArchive(); return; }
-    else {
-      practiceIndex = (practiceIndex + 1) % (CASES.length * 1000); practice = restoreGame(practiceRecords[CASES[practiceIndex % CASES.length].id], CASES[practiceIndex % CASES.length].id); persist(); resetInput(); render();
-      if (practiceIndex % CASES.length === 0) toast(`Начался новый круг из ${CASES.length} клинических случаев.`);
-    }
-    $('game').scrollIntoView({ block:'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  });
+  result.className = 'result result-card' + (won ? '' : ' lost');
+  result.innerHTML = `<div class="result-hero"><p class="result-eyebrow">${won?'Верно':'Случай завершён'}</p><h2>${escapeHTML(getDiagnosis(caseData.diagnosis).name)}</h2><p class="result-subtitle">${won?'Диагноз найден':'Ответ не найден'} · ${game.guesses.length} из 6 попыток</p><div class="result-grid" aria-label="${game.guesses.length} из 6 попыток">${Array.from({length:6},(_,i)=>`<span class="result-step ${i<game.guesses.length?'used':''} ${won&&i===game.guesses.length-1?'correct':''}">${won&&i===game.guesses.length-1?'✓':i<game.guesses.length?'−':''}</span>`).join('')}</div><button id="next-button" class="primary-button">Следующий случай</button><button id="share-button" class="text-button">Поделиться результатом</button></div><details class="result-review"><summary>Разбор случая</summary><p class="result-body">${escapeHTML(caseData.explanation)}</p><p class="takeaway">${escapeHTML(caseData.takeaway)}</p>${reviewHTML(game,caseData)}<button id="retry-case" class="text-button">Пройти заново</button></details>`;
+  $('challenge-button').addEventListener('click',()=>showChallenge(caseData));
+  $('telegram-share').addEventListener('click',()=>{const u=new URL('https://t.me/share/url');u.searchParams.set('url',caseLink());u.searchParams.set('text',shareText(current(),mode));window.open(u.href,'_blank','noopener,noreferrer');});
+  $('retry-case').addEventListener('click',()=>restartCase(caseData.id));
+  $('share-button').addEventListener('click',shareResult);
+  $('next-button').addEventListener('click',nextUnseen);
+}
+function highlightMatch(text, query) {
+  const q=normalize(query), n=normalize(text), start=n.indexOf(q);
+  if(!q||start<0)return escapeHTML(text);
+  // Match against the original string so punctuation cannot shift the highlight.
+  const folded=String(text).toLowerCase().replaceAll('ё','е');
+  const i=folded.indexOf(String(query).toLowerCase().replaceAll('ё','е').trim());
+  if(i<0)return escapeHTML(text);
+  const len=String(query).trim().length;
+  return escapeHTML(text.slice(0,i))+'<mark>'+escapeHTML(text.slice(i,i+len))+'</mark>'+escapeHTML(text.slice(i+len));
+}
+function progressState(){return {records,practiceRecords:{...practiceRecords,[practice.caseId]:practice},repeatLog,visited};}
+function caseProgress(c){return progressFor(c.id,progressState());}
+function nextUnseen(){
+  const pool=unseenCases(CASES,progressState(),[daily.caseId,current().caseId]);
+  if(pool.length){openCase(pool[Math.floor(Math.random()*pool.length)].id);return;}
+  openModal('<h2>Все случаи открыты</h2><p>Новые задачи закончились. Можно вернуться к ошибкам или продолжить начатые случаи в архиве.</p><button class="modal-start" id="open-errors">Повторить ошибки</button><button class="text-button" id="open-archive">Открыть архив</button>');
+  $('open-errors').onclick=()=>showArchive('Ошибки');$('open-archive').onclick=()=>showArchive('Новые');
 }
 
 function resetInput() {
@@ -228,8 +220,8 @@ function updateClock() {
 
 $('guess-form').addEventListener('submit', submitGuess);
 $('daily-tab').addEventListener('click', () => setMode('daily'));
-$('practice-tab').addEventListener('click', showArchive);
-$('archive-return').addEventListener('click', showArchive);
+$('practice-tab').addEventListener('click',()=>showArchive('Новые'));
+$('archive-return').addEventListener('click',()=>showArchive(archiveStatus));
 $('stats-button').addEventListener('click', showStats);
 $('help-button').addEventListener('click', showHelp);
 $('about-button').addEventListener('click', showAbout);
@@ -257,10 +249,23 @@ window.addEventListener('storage', event => {
   try {
     const next = JSON.parse(event.newValue);
     if (next.records && typeof next.records === 'object' && !Array.isArray(next.records)) {
-      records = next.records; daily = restoreGame(records[today], dailyCase(today).id, today); resetInput(); render();
+      records = next.records; daily = restoreGame(records[today], dailyCase(today).id, today);
+      if(next.practiceRecords)practiceRecords=next.practiceRecords;
+      if(mode==='practice'&&practiceRecords[practice.caseId])practice=restoreGame(practiceRecords[practice.caseId],practice.caseId);
+      if(Array.isArray(next.visited))visited=next.visited;
+      if(Array.isArray(next.repeatLog))repeatLog=next.repeatLog;
+      if(next.bookmarks)bookmarks=next.bookmarks;
+      if(next.tipDismissed){tipDismissed=true;$('first-tip').hidden=true;}
+      resetInput(); render();
     }
   } catch { /* Ignore an invalid update from another tab. */ }
 });
+$('errors-button').addEventListener('click',()=>showArchive('Ошибки'));
+$('site-menu').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{$('site-menu').open=false;}));
+document.addEventListener('pointerdown',e=>{if(!e.target.closest('#site-menu'))$('site-menu').open=false;});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('site-menu').open=false;});
+$('dismiss-tip').onclick=()=>{tipDismissed=true;$('first-tip').hidden=true;persist();};
+$('first-tip').hidden=tipDismissed;
 setTheme(theme); render();
 setInterval(() => { checkNewDay(); updateClock(); }, 1000);
 if (!storageAvailable) toast('Сохранение недоступно в этом браузере. Игра работает до закрытия страницы.');
@@ -277,24 +282,41 @@ function reviewHTML(game,c){
  const alternatives=Object.entries(notes).filter(([id])=>!wrong.includes(id)).map(([id,n])=>`<div class="differential"><h4>${escapeHTML(getDiagnosis(id)?.name||id)}</h4><p>${escapeHTML(n)}</p></div>`).join('');
  return `<div class="result-actions"><button id="telegram-share">В Telegram ↗</button><button id="challenge-button" class="secondary">Оспорить ответ</button></div><div class="reasoning"><details><summary>Разобрать случай по шагам</summary><ol>${c.clues.map((x,i)=>`<li><span>0${i+1}</span><p>${escapeHTML(x)}</p></li>`).join('')}</ol></details>${wrong.length?`<h3>Ваши гипотезы</h3>${attempted}`:''}${alternatives?`<details><summary>С чем ещё сравнить</summary>${alternatives}</details>`:''}<details class="editorial"><summary>Источники</summary><p>${c.publication ? 'Адаптировано из опубликованного клинического наблюдения. '+escapeHTML(c.publication.title||'') : 'История пациента вымышленная; заболевание и диагностические признаки основаны на медицинских источниках.'}</p><p>Независимая врачебная проверка пока не проведена.</p><a href="${c.source}" target="_blank" rel="noopener noreferrer">${escapeHTML(c.sourceLabel)} ↗</a>${c.publication?`<p>${escapeHTML(c.publication.authors || c.publication.author || '')} · ${escapeHTML(c.publication.year)}<br>${escapeHTML(c.publication.adaptation || 'Сокращённый перевод и адаптация в игровую задачу.')}</p><a href="${c.publication.licenseUrl}" target="_blank" rel="noopener noreferrer">${escapeHTML(c.publication.license)} ↗</a>`:''}</details></div>`;
 }
-let archiveStatus='Все';
-function showArchive(){
- openModal(`<h2>Архив</h2><div class="archive-filters"><label>Прогресс<select id="status-filter">${['Все','Не начаты','В процессе','Завершены','Мои ошибки','Закладки','Реальные случаи'].map(x=>`<option${x===archiveStatus?' selected':''}>${x}</option>`).join('')}</select></label></div><div id="archive-list"></div><button class="modal-start" id="random-case">Случайный случай</button><button class="text-button" id="my-reports">Мои замечания</button>`);
- $('status-filter').addEventListener('change',e=>{archiveStatus=e.target.value;renderArchive();});
- $('random-case').addEventListener('click',()=>{const pool=archivePool();if(pool.length)openCase(pool[Math.floor(Math.random()*pool.length)].id);});
- $('my-reports').addEventListener('click',showReports);renderArchive();
+function showArchive(tab='Новые'){
+ archiveStatus=tab;archivePage=0;
+ openModal(`<div class="archive-title"><h2>Архив случаев</h2><span>${CASES.length} случаев</span></div><div class="archive-tabs" role="group" aria-label="Разделы архива">${['Новые','Ошибки','Закладки','Пройденные'].map(x=>`<button data-archive-tab="${x}" aria-pressed="${x===tab}">${x}</button>`).join('')}</div><p id="archive-caption" class="archive-caption"></p><div id="archive-list"></div><div class="archive-pagination"><button id="archive-prev" aria-label="Предыдущая страница">←</button><span id="archive-page"></span><button id="archive-next" aria-label="Следующая страница">→</button></div><button class="modal-start" id="random-case">Новый случай</button>`);
+ document.querySelectorAll('[data-archive-tab]').forEach(b=>b.onclick=()=>{archiveStatus=b.dataset.archiveTab;archivePage=0;renderArchive();});
+ $('archive-prev').onclick=()=>{archivePage--;renderArchive();};$('archive-next').onclick=()=>{archivePage++;renderArchive();};
+ $('random-case').onclick=()=>{if(archiveStatus==='Ошибки'){const c=archivePool()[0];if(c)repeatCase(c.id);}else nextUnseen();};renderArchive();
 }
-function archiveGame(c){let saved=c.id===practice.caseId?practice:practiceRecords[c.id];if(!saved?.guesses?.length&&!Object.hasOwn(practiceRecords,c.id)){const dailyHistory=Object.values(records).filter(g=>g?.caseId===c.id&&g.guesses?.length);if(dailyHistory.length)saved={...dailyHistory.at(-1),day:null};}return restoreGame(saved,c.id);}
-function archivePool(){return CASES.filter(c=>{const g=archiveGame(c);return (archiveStatus==='Все'||archiveStatus==='Мои ошибки'&&g.status==='lost'||archiveStatus==='Закладки'&&!!bookmarks[c.id]||archiveStatus==='Реальные случаи'&&!!c.publication||archiveStatus==='Не начаты'&&!g.guesses.length||archiveStatus==='В процессе'&&g.status==='playing'&&g.guesses.length>0||archiveStatus==='Завершены'&&g.status!=='playing');});}
+function archiveGame(c){
+ const p=caseProgress(c),saved=p.game;
+ return restoreGame(saved,c.id);
+}
+function archivePool(){return CASES.filter(c=>{const p=caseProgress(c);return archiveStatus==='Закладки'?!!bookmarks[c.id]:archiveStatus==='Ошибки'?p.error:archiveStatus==='Пройденные'?p.solved:!p.solved&&!p.error;});}
 function renderArchive(){
- const pool=archivePool();$('random-case').disabled=!pool.length;
- $('archive-list').innerHTML=pool.length?pool.map(c=>{const g=archiveGame(c),done=g.status!=='playing';return `<button class="archive-case" data-case="${c.id}"><span class="archive-id">${c.id.slice(-2)}</span><span><strong>${escapeHTML(done?getDiagnosis(c.diagnosis).name:c.patient)}</strong><small>${c.publication?'Реальный случай · ':''}${done?(g.status==='won'?'Решён':'Не решён'):g.guesses.length?'Продолжить · '+g.guesses.length+'/6':'Не начат'}</small></span><span aria-hidden="true">${done?'✓':'↗'}</span></button>`;}).join(''):'<p>Нет случаев с такими фильтрами.</p>';
- $('archive-list').querySelectorAll('[data-case]').forEach(b=>b.addEventListener('click',()=>openCase(b.dataset.case)));
+ const pool=archivePool(), pages=Math.max(1,Math.ceil(pool.length/6));archivePage=Math.max(0,Math.min(archivePage,pages-1));
+ document.querySelectorAll('[data-archive-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.archiveTab===archiveStatus)));
+ $('archive-caption').textContent=archiveStatus==='Ошибки'?'Случаи, которые пока не удалось решить. Повтор не меняет результат дня.':archiveStatus==='Новые'?'Непройденные случаи и незавершённые попытки.':'';
+ $('archive-list').innerHTML=pool.length?pool.slice(archivePage*6,archivePage*6+6).map(c=>{const p=caseProgress(c),g=archiveGame(c);return `<button class="archive-case" data-case="${c.id}"><span class="archive-id">${String(CASES.indexOf(c)+1).padStart(2,'0')}</span><span><strong>${escapeHTML(p.solved?getDiagnosis(c.diagnosis).name:c.patient)}</strong><small>${p.solved?'Решён':p.error?(p.inProgress?'Продолжить повторение':'Повторить'):g.guesses.length?'Продолжить · '+g.guesses.length+'/6':'Не начат'}</small></span></button>`;}).join(''):`<div class="archive-empty">${archiveStatus==='Ошибки'?'Ошибок для повторения пока нет.':archiveStatus==='Закладки'?'Сохраните интересный случай — он появится здесь.':archiveStatus==='Пройденные'?'Здесь появятся решённые случаи.':'Все случаи завершены.'}</div>`;
+ $('archive-list').querySelectorAll('[data-case]').forEach(b=>b.onclick=()=>{const c=getCase(b.dataset.case);if(caseProgress(c).error)repeatCase(c.id);else openCase(c.id);});
+ $('archive-page').textContent=`${archivePage+1} / ${pages}`;$('archive-prev').disabled=archivePage===0;$('archive-next').disabled=archivePage===pages-1;
+ document.querySelector('.archive-pagination').hidden=pages===1;
+ $('random-case').hidden=archiveStatus==='Пройденные'||archiveStatus==='Закладки';
+ $('random-case').textContent=archiveStatus==='Ошибки'?'Повторить ошибку':'Новый случай';
+ $('random-case').disabled=archiveStatus==='Ошибки'?!pool.length:!unseenCases(CASES,progressState(),[daily.caseId,current().caseId]).length;
 }
-function openCase(id){
- const selectedSaved=archiveGame(getCase(id));
+function repeatCase(id){
+ if(id===daily.caseId&&daily.status==='playing'){setMode('daily');$('modal').close();toast('Сначала завершите сегодняшний случай.');return;}
+ const g=archiveGame(getCase(id));
+ if(g.status==='playing'&&g.guesses.length)openCase(id,true);else restartCase(id);
+}
+
+function openCase(id, repeating=false){
+ if(id===daily.caseId&&!repeating){setMode('daily');$('modal').close();return;}
+ const selectedSaved=repeating?restoreGame(practiceRecords[id],id):archiveGame(getCase(id));
  practiceRecords[practice.caseId]=practice;practiceIndex=CASES.findIndex(c=>c.id===id);if(practiceIndex<0)return;
- practice=selectedSaved;mode='practice';resetInput();persist();render();$('modal').close();
+ practice=selectedSaved;mode='practice';if(!visited.includes(id))visited.push(id);resetInput();persist();render();$('modal').close();
  history.replaceState(null,'',`?case=${encodeURIComponent(id)}`);$('game').scrollIntoView({block:'start'});
 }
 function readReports(){try{const r=JSON.parse(localStorage.getItem('doctordle-reports')||'[]');return Array.isArray(r)?r:[];}catch{return [];}}
@@ -315,5 +337,5 @@ function showBookmark(){
  if(old)$('remove-bookmark').addEventListener('click',()=>{delete bookmarks[c.id];persist();render();$('modal').close();});
 }
 function restartCase(id){
- const previous=archiveGame(getCase(id));repeatLog.push({...previous,repeatedAt:new Date().toISOString()});repeatLog=repeatLog.slice(-100);practiceRecords[id]=createGame(id);if(practice.caseId===id)practice=practiceRecords[id];openCase(id);
+ const previous=archiveGame(getCase(id));repeatLog.push({...previous,repeatedAt:new Date().toISOString()});repeatLog=repeatLog.slice(-100);practiceRecords[id]=createGame(id);if(practice.caseId===id)practice=practiceRecords[id];openCase(id,true);
 }

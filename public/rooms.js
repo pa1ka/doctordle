@@ -1,6 +1,6 @@
-import {compactClues} from './compact.js?v=13';
-import {CASES,DIAGNOSES} from './data.js?v=13';
-import {getCase,getDiagnosis,SKIP_GUESS,resolveDiagnosis} from './engine.js?v=13';
+import {compactClues} from './compact.js?v=15';
+import {CASES,DIAGNOSES} from './data.js?v=15';
+import {getCase,getDiagnosis,SKIP_GUESS,resolveDiagnosis} from './engine.js?v=15';
 let ui,roomId=null,state=null,timer=null,busy=false;
 const $=id=>document.getElementById(id);
 function secret(){let t=localStorage.getItem('doctordle-room-key');if(!t){t=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');localStorage.setItem('doctordle-room-key',t);}return t;}
